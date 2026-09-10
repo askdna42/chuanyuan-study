@@ -1,0 +1,16 @@
+{
+  "name": "船员学习室 · 好好学习，天天向上",
+  "short_name": "船员学习室",
+  "description": "公考备考工作台：每日打卡、笔记与思维导图、默写、瀑布流共享、行测助手",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#FBFAF7",
+  "theme_color": "#FBFAF7",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "assets/icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" },
+    { "src": "assets/icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "maskable" }
+  ]
+}
