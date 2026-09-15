@@ -12,6 +12,7 @@ window.CY_SEED = (function () {
     { id: 'zzll', name: '政治理论', short: '政治', color: 'warm' },
     { id: 'slgx', name: '数量关系', short: '数量', color: 'accent' },
     { id: 'cspd', name: '常识判断', short: '常识', color: 'brand' },
+    { id: 'sl',   name: '申论', short: '申论', color: 'accent' },
     { id: 'zyk',   name: '专业课（军事理论·法律）', short: '专业', color: 'warm' }
   ];
 
@@ -28,7 +29,8 @@ window.CY_SEED = (function () {
     allTasks: 10,      // 当日任务全部完成
     week7: 20,         // 连续 7 天额外奖励
     recite90: 5,       // 默写正确率 ≥ 90%
-    cardRound: 3       // 卡片复习过一轮
+    cardRound: 3,      // 卡片复习过一轮
+    pomodoro: 2        // 番茄钟走完一轮专注
   };
 
   /* 自定义奖励（随时增删改） */

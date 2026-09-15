@@ -36,6 +36,13 @@
     load() {
       try { this.db = JSON.parse(localStorage.getItem(DB_KEY)); } catch (e) { this.db = null; }
       if (!this.db) this.db = this.blank();
+      /* 顺手修一下历史数据：早期版本有一条"新建内容 id 为空"的 bug，
+         那种条目在列表里点不开也删不掉。这里给它补上 id。 */
+      let fixed = 0;
+      ['items', 'tasks', 'rewards', 'exams', 'invites', 'checkins'].forEach(k => {
+        (this.db[k] || []).forEach(x => { if (x && !x.id) { x.id = uid(); fixed++; } });
+      });
+      if (fixed) this.flush();
       return this.db;
     },
     blank() {
@@ -111,6 +118,12 @@
     toggleTask(id, done) { const t = this.db.tasks.find(x => x.id === id); if (t) { t.done = done; this.flush(); } },
     delTask(id) { this.db.tasks = this.db.tasks.filter(x => x.id !== id); this.flush(); },
     listTasks(userId, date) { return this.db.tasks.filter(t => t.userId === userId && t.date === date); },
+    /* 取一段日期内的任务（日历用，避免一天一次请求） */
+    listTasksRange(userId, from, to) {
+      return this.db.tasks
+        .filter(t => t.userId === userId && t.date >= from && t.date <= to)
+        .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+    },
 
     listCheckins(userId) { return this.db.checkins.filter(c => c.userId === userId); },
 
@@ -156,7 +169,11 @@
         if (i) { Object.assign(i, item, { updatedAt: new Date().toISOString() }); this.flush(); return i; }
       }
       const now = new Date().toISOString();
-      const fresh = Object.assign({ id: uid(), likes: [], createdAt: now, updatedAt: now, visibility: 'private', kind: 'note' }, item);
+      const fresh = Object.assign({ likes: [], createdAt: now, updatedAt: now, visibility: 'private', kind: 'note' }, item);
+      /* ⚠️ 这里必须再兜一次底：调用方常写成 { id: editing.id }，
+         新建时 editing.id 是 undefined，Object.assign 会用 undefined 把上面生成的 id 覆盖掉，
+         结果这条内容 id 变成 undefined —— 列表里点它没反应、也删不掉。 */
+      if (!fresh.id) fresh.id = uid();
       this.db.items.push(fresh); this.flush();
       return fresh;
     },
@@ -272,6 +289,11 @@
     async delTask(id) { await this.sb.from('tasks').delete().eq('id', id); },
     async listTasks(userId, date) {
       const { data } = await this.sb.from('tasks').select('*').eq('user_id', userId).eq('date', date).order('created_at');
+      return (data || []).map(t => ({ id: t.id, userId: t.user_id, date: t.date, module: t.module, title: t.title, done: t.done }));
+    },
+    async listTasksRange(userId, from, to) {
+      const { data } = await this.sb.from('tasks').select('*').eq('user_id', userId)
+        .gte('date', from).lte('date', to).order('date');
       return (data || []).map(t => ({ id: t.id, userId: t.user_id, date: t.date, module: t.module, title: t.title, done: t.done }));
     },
     async listCheckins(userId) {
@@ -440,6 +462,7 @@
     addPoints(n) { return this.mode === 'cloud' ? Cloud.updateUser(this._user.id, { points: (this._user.points || 0) + n }) : Local.addPoints(this._user.id, n); },
 
     listTasks(date) { return this.mode === 'cloud' ? Cloud.listTasks(this._user.id, date) : Local.listTasks(this._user.id, date); },
+    listTasksRange(from, to) { return this.mode === 'cloud' ? Cloud.listTasksRange(this._user.id, from, to) : Local.listTasksRange(this._user.id, from, to); },
     addTask(t) { return this.mode === 'cloud' ? Cloud.addTask({ userId: this._user.id, ...t }) : Local.addTask({ userId: this._user.id, ...t }); },
     toggleTask(id, done) { return this.mode === 'cloud' ? Cloud.toggleTask(id, done) : Local.toggleTask(id, done); },
     delTask(id) { return this.mode === 'cloud' ? Cloud.delTask(id) : Local.delTask(id); },

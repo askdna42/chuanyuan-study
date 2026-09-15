@@ -1,6 +1,6 @@
 /* 船员学习室 · 界面与交互 */
 (function () {
-  const Store = window.CY.Store, SEED = window.CY_SEED, U = window.CY.util;
+  const Store = window.CY.Store, SEED = window.CY_SEED, U = window.CY.util, MIND = window.CY_MIND;
   const $ = s => document.querySelector(s);
   const $$ = s => Array.from(document.querySelectorAll(s));
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -33,31 +33,7 @@
       MODULES.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
   }
 
-  /* ================= 大纲 <-> 导图 ================= */
-  function parseOutline(text) {
-    const root = { t: '（空导图）', c: [] };
-    const stack = [{ node: root, indent: -1 }];
-    String(text || '').split('\n').forEach(line => {
-      if (!line.trim()) return;
-      const m = line.match(/^([ \t]*)(.*)$/);
-      let indent = 0;
-      for (const ch of m[1]) indent += (ch === '\t' ? 2 : 1);
-      const txt = m[2].replace(/^[-*+•]\s*/, '').replace(/^#+\s*/, '').trim();
-      if (!txt) return;
-      while (stack.length > 1 && stack[stack.length - 1].indent >= indent) stack.pop();
-      const node = { t: txt, c: [] };
-      stack[stack.length - 1].node.c.push(node);
-      stack.push({ node, indent });
-    });
-    if (root.c.length === 1) return root.c[0];
-    return root.c.length ? root : { t: '（空导图）', c: [] };
-  }
-  function outlineText(node, depth) {
-    depth = depth || 0;
-    let out = '  '.repeat(depth) + (node.t || '') + '\n';
-    (node.c || []).forEach(c => { out += outlineText(c, depth + 1); });
-    return out;
-  }
+  /* ================= 导图（工具区仍用大纲树渲染预置内容） ================= */
   function renderTree(node, level, collapsible) {
     level = level || 0;
     const kids = node.c || [];
@@ -66,6 +42,15 @@
       `<li class="mm-node mm-l${Math.min(level, 3)}"><span class="mm-label">${tgl}${esc(node.t)}</span>` +
       (kids.length ? kids.map(k => renderTree(k, level + 1, collapsible)).join('') : '') +
       `</li></ul>`;
+  }
+
+  /* 一条内容在卡片上显示的摘要（导图走图形引擎） */
+  function itemExcerpt(i, n) {
+    const c = String(i.content || '');
+    if (i.kind === 'mindmap') {
+      try { return MIND.excerpt(MIND.parse(c), n); } catch (e) { return ''; }
+    }
+    return c.slice(0, n);
   }
 
   /* ================= 默写 ================= */
@@ -166,17 +151,37 @@
   /* ================= 外壳 ================= */
   let view = 'home';
   const PAGES = {
-    home: ['今日学习', '看见今天要做的事，然后一件件做掉'],
+    home: ['仪表盘', '看见今天要做的事，然后一件件做掉'],
     notes: ['我的笔记', '六大模块的笔记与思维导图，按分类或日期看'],
+    cards: ['卡片记忆', '先回忆，再翻面。忘了的会自动挑回来重来'],
     forum: ['瀑布流', '大家发布的笔记，互相偷师'],
     tools: ['行测助手', '大九九乘法表、速算练习、公式与图推速查'],
     settings: ['设置', '账号、邀请码、数据备份']
   };
+  const isNarrow = () => window.innerWidth <= 900;
+
+  /* 侧栏：桌面折叠 / 手机抽屉，状态记在本地 */
+  function applySidebar() {
+    document.body.classList.toggle('sb-collapsed', localStorage.getItem('cy_sb') === '1' && !isNarrow());
+    if (!isNarrow()) document.body.classList.remove('sb-open');
+  }
+  function toggleSidebar() {
+    if (isNarrow()) {
+      document.body.classList.toggle('sb-open');
+    } else {
+      const next = !document.body.classList.contains('sb-collapsed');
+      localStorage.setItem('cy_sb', next ? '1' : '0');
+      applySidebar();
+    }
+  }
+  function closeDrawer() { document.body.classList.remove('sb-open'); }
+
   async function enterApp() {
     $('#boot').classList.add('hidden');
     $('#authScreen').classList.add('hidden');
     $('#app').classList.remove('hidden');
     $('#bottomNav').classList.remove('hidden');
+    applySidebar();
     await refreshUserChip();
     switchView('home');
   }
@@ -191,12 +196,14 @@
   }
   function switchView(v) {
     view = v;
-    ['home', 'notes', 'forum', 'tools', 'settings'].forEach(k => $('#view' + k[0].toUpperCase() + k.slice(1)).classList.toggle('hidden', k !== v));
+    ['home', 'notes', 'cards', 'forum', 'tools', 'settings'].forEach(k => $('#view' + k[0].toUpperCase() + k.slice(1)).classList.toggle('hidden', k !== v));
     $$('#navSide .nav-item, #bottomNav button').forEach(b => b.classList.toggle('active', b.dataset.nav === v));
     $('#pageTitle').textContent = PAGES[v][0];
     $('#pageDesc').textContent = PAGES[v][1];
+    closeDrawer();
     if (v === 'home') renderHome();
     if (v === 'notes') renderNotes();
+    if (v === 'cards') window.CY_CARDS.render();
     if (v === 'forum') renderForum();
     if (v === 'tools') renderTools();
     if (v === 'settings') renderSettings();
@@ -205,16 +212,263 @@
   function bindNav() {
     $$('#navSide .nav-item, #bottomNav button').forEach(b => b.onclick = () => switchView(b.dataset.nav));
     $('#btnLogout').onclick = async () => { await Store.signOut(); showAuth(); };
+    $('#btnSideCollapse').onclick = toggleSidebar;
+    $('#btnMenu').onclick = toggleSidebar;
+    $('#scrim').onclick = closeDrawer;
+    window.addEventListener('resize', applySidebar);
   }
 
-  /* ================= 首页 ================= */
+  /* ================= 仪表盘 ================= */
   async function renderHome() {
-    const u = Store.user();
     await renderCountdowns();
     await renderCheckin();
     await renderTasks();
+    await renderCalendar();
+    renderPomodoro();
     await renderRewards();
     await renderModuleTiles();
+  }
+
+  /* ================= 学习日历 ================= */
+  const WEEK = ['一', '二', '三', '四', '五', '六', '日'];
+  const p2 = n => String(n).padStart(2, '0');
+  const ISO = (y, m, d) => y + '-' + p2(m + 1) + '-' + p2(d);
+  let calY = null, calM = null, calSel = null;
+  let calTaskCache = [];
+  let calReveal = false;
+
+  function calCursor() {
+    const now = new Date();
+    if (calY === null) { calY = now.getFullYear(); calM = now.getMonth(); }
+    if (!calSel) calSel = today();
+  }
+
+  async function renderCalendar() {
+    calCursor();
+    const t = today();
+    $('#calMonth').textContent = calY + ' 年 ' + (calM + 1) + ' 月';
+    $('#calHead').innerHTML = WEEK.map(w => `<div>${w}</div>`).join('');
+
+    const checkins = await Store.listCheckins();
+    const ck = {};
+    checkins.forEach(c => { const d = String(c.date || '').slice(0, 10); if (d) ck[d] = true; });
+
+    /* 整个月的任务一次拿回来，避免一天一次请求 */
+    const first = ISO(calY, calM, 1);
+    const lastDay = new Date(calY, calM + 1, 0).getDate();
+    const last = ISO(calY, calM, lastDay);
+    try { calTaskCache = await Store.listTasksRange(first, last); } catch (e) { calTaskCache = []; }
+    const byDate = {};
+    calTaskCache.forEach(x => { (byDate[x.date] = byDate[x.date] || []).push(x); });
+
+    /* 网格：周一开头 */
+    const jsFirst = new Date(calY, calM, 1).getDay();       // 0=周日
+    const lead = (jsFirst + 6) % 7;
+    let html = '';
+    for (let i = 0; i < lead; i++) html += '<div class="cal-cell out"></div>';
+
+    const monthSel = calSel.slice(0, 7) === ISO(calY, calM, 1).slice(0, 7);
+    for (let d = 1; d <= lastDay; d++) {
+      const iso = ISO(calY, calM, d);
+      const isToday = iso === t;
+      const isPast = iso < t;
+      const list = byDate[iso] || [];
+      const doneN = list.filter(x => x.done).length;
+
+      let cls = 'cal-cell';
+      if (ck[iso]) cls += ' ok';
+      else if (isPast) cls += ' miss';
+      if (isToday) cls += ' today';
+      if (iso === calSel) cls += ' sel';
+
+      let dots = '';
+      if (list.length) {
+        const show = Math.min(list.length, 5);
+        for (let i = 0; i < show; i++) dots += `<i class="${i < doneN ? 'on' : ''}"></i>`;
+        if (list.length > show) dots += `<i class="on"></i>`;
+      }
+
+      html += `<div class="${cls}" data-date="${iso}" role="button" tabindex="0" title="${iso}">
+        <div class="cd">${d}</div>
+        <div class="cdot">${dots}</div>
+        ${list.length ? `<div class="ctasks">${list.length} 项${doneN === list.length ? ' · 全清' : ' · 完成' + doneN}</div>` : ''}
+        <div class="cbar"></div>
+      </div>`;
+    }
+    const tail = (7 - ((lead + lastDay) % 7)) % 7;
+    for (let i = 0; i < tail; i++) html += '<div class="cal-cell out"></div>';
+    $('#calGrid').innerHTML = html;
+
+    $$('#calGrid .cal-cell[data-date]').forEach(b => {
+      const go = () => { calSel = b.dataset.date; renderCalendar(); };
+      b.onclick = go;
+      b.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+    });
+
+    renderCalDay(ck);
+  }
+
+  async function renderCalDay(ckMap) {
+    const iso = calSel || today();
+    const t = today();
+    let ck = ckMap;
+    if (!ck) {
+      const list = await Store.listCheckins();
+      ck = {};
+      list.forEach(c => { const d = String(c.date || '').slice(0, 10); if (d) ck[d] = true; });
+    }
+    const tasks = calTaskCache.filter(x => x.date === iso);
+    const dayLabel = (() => {
+      const [y, m, d] = iso.split('-').map(Number);
+      const wd = ['日', '一', '二', '三', '四', '五', '六'][new Date(y, m - 1, d).getDay()];
+      return `${m} 月 ${d} 日 · 周${wd}` + (iso === t ? '（今天）' : '');
+    })();
+    const tag = ck[iso]
+      ? '<span class="cal-day-tag ok">当天已打卡</span>'
+      : (iso < t ? '<span class="cal-day-tag miss">当天没打卡</span>' : '<span class="cal-day-tag none">还没到</span>');
+
+    $('#calDay').innerHTML = `
+      <div class="cal-day-head">
+        <div class="cal-day-title">${dayLabel}</div>
+        ${tag}
+      </div>
+      ${tasks.length ? tasks.map(x => `
+        <div class="task ${x.done ? 'done' : ''}">
+          <input type="checkbox" ${x.done ? 'checked' : ''} data-tid="${x.id}" ${x.date !== t ? 'disabled' : ''}>
+          <div class="task-body">
+            <div class="task-title"><span class="tag b">${esc(modShort(x.module))}</span>${esc(x.title)}</div>
+          </div>
+        </div>`).join('')
+        : '<div class="empty">这一天没有安排学习任务。</div>'}
+      ${iso === t ? '' : '<div class="hint" style="margin-top:8px">只能勾选今天的任务，往日记录只做回顾。</div>'}`;
+
+    $$('#calDay input[data-tid]').forEach(inp => inp.onchange = async e => {
+      await Store.toggleTask(inp.dataset.tid, e.target.checked);
+      await renderCalendar();
+      await renderTasks();
+    });
+  }
+
+  /* ================= 番茄钟 ================= */
+  const POMO_KEY = 'cy_pomo_';
+  const RING_LEN = 2 * Math.PI * 88;
+  let pomo = {
+    phase: 'focus',        // focus | break
+    running: false,
+    left: 25 * 60,
+    total: 25 * 60,
+    timer: null,
+    focusMin: 25,
+    breakMin: 5,
+    count: 0
+  };
+
+  function pomoReadCount() {
+    const n = Number(localStorage.getItem(POMO_KEY + today()));
+    pomo.count = Number.isFinite(n) ? n : 0;
+  }
+  function pomoWriteCount() {
+    localStorage.setItem(POMO_KEY + today(), String(pomo.count));
+  }
+  function pomoSetRing() {
+    const p = pomo.total ? (pomo.total - pomo.left) / pomo.total : 0;
+    const ring = $('#pomoRing');
+    ring.style.strokeDasharray = RING_LEN.toFixed(1);
+    ring.style.strokeDashoffset = (RING_LEN * (1 - p)).toFixed(1);
+  }
+  function pomoPaint() {
+    const m = Math.floor(pomo.left / 60), s = pomo.left % 60;
+    $('#pomoTime').textContent = m + ':' + p2(s);
+    $('#pomoPhase').textContent = pomo.running
+      ? (pomo.phase === 'focus' ? '专注中' : '休息中')
+      : (pomo.phase === 'focus' ? '准备专注' : '准备休息');
+    $('#pomoCount').textContent = pomo.count;
+    $('#pomoStart').textContent = pomo.running ? '暂停' : (pomo.phase === 'focus' ? '开始专注' : '开始休息');
+    $('#pomoWrap').classList.toggle('break', pomo.phase === 'break');
+    $('#pomoWrap').classList.toggle('paused', !pomo.running);
+    pomoSetRing();
+  }
+  function pomoStop() {
+    if (pomo.timer) clearInterval(pomo.timer);
+    pomo.timer = null;
+    pomo.running = false;
+    pomoPaint();
+  }
+  function pomoLoad(durMin) {
+    pomo.total = Math.max(60, Math.round(durMin * 60));
+    pomo.left = pomo.total;
+  }
+  function pomoBeep() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      const ctx = new AC();
+      const osc = ctx.createOscillator(), gain = ctx.createGain();
+      osc.type = 'sine'; osc.frequency.value = 760;
+      gain.gain.value = 0.001;
+      osc.connect(gain); gain.connect(ctx.destination);
+      const now = ctx.currentTime;
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.16, now + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+      osc.start(now); osc.stop(now + 1);
+      setTimeout(() => { try { ctx.close(); } catch (e) { } }, 1400);
+    } catch (e) { /* 静音环境就算了 */ }
+  }
+  async function pomoFinish() {
+    pomoStop();
+    pomoBeep();
+    if (pomo.phase === 'focus') {
+      pomo.count++; pomoWriteCount();
+      const gain = (SEED.POINTS_RULE && SEED.POINTS_RULE.pomodoro) || 2;
+      try { await Store.addPoints(gain); await refreshUserChip(); } catch (e) { }
+      $('#statPoints').textContent = Store.user().points || 0;
+      toast('这一轮专注完成，+' + gain + ' 积分。休息一下吧。');
+      pomo.phase = 'break';
+      pomoLoad(pomo.breakMin);
+    } else {
+      const last = ($('#pomoTask').value || '').trim();
+      toast('休息结束，回来接着干' + (last ? '：' + last : ''));
+      pomo.phase = 'focus';
+      pomoLoad(pomo.focusMin);
+    }
+    pomoPaint();
+  }
+  function pomoStart() {
+    if (pomo.running) { pomoStop(); return; }
+    pomo.focusMin = Math.min(180, Math.max(1, Number($('#pomoFocusMin').value) || 25));
+    pomo.breakMin = Math.min(60, Math.max(1, Number($('#pomoBreakMin').value) || 5));
+    /* 还没开始走（进度为 0）就按最新填的时长重新装一次；
+       中途暂停（left < total）则原样接着走，不会被重置 */
+    if (pomo.left === pomo.total) pomoLoad(pomo.phase === 'focus' ? pomo.focusMin : pomo.breakMin);
+    pomo.running = true;
+    pomo.timer = setInterval(() => {
+      pomo.left--;
+      if (pomo.left <= 0) { pomo.left = 0; pomoPaint(); pomoFinish(); return; }
+      pomoPaint();
+    }, 1000);
+    pomoPaint();
+  }
+  async function renderPomodoro() {
+    if (!$('#pomoTime')) return;
+    pomoReadCount();
+    if (!pomo.running && !pomo.timer) {
+      pomo.focusMin = Math.min(180, Math.max(1, Number($('#pomoFocusMin').value) || 25));
+      pomo.breakMin = Math.min(60, Math.max(1, Number($('#pomoBreakMin').value) || 5));
+      pomo.phase = 'focus';
+      pomoLoad(pomo.focusMin);
+    }
+    pomoPaint();
+    /* 默认把今天第一条没做完的任务填进去，省得每次手打
+       ⚠️ 本机模式下 listTasks 返回的是普通数组、云端模式下是 Promise，
+       所以这里必须用 await（await 对非 Promise 也安全），不能直接 .then() */
+    if (!$('#pomoTask').value) {
+      try {
+        const list = await Store.listTasks(today());
+        const undone = (list || []).find(x => !x.done);
+        if (undone && !$('#pomoTask').value) $('#pomoTask').value = undone.title;
+      } catch (e) { /* 拿不到就算了，不影响计时 */ }
+    }
   }
 
   async function renderCountdowns() {
@@ -277,10 +531,13 @@
     $$('#taskList .task').forEach(el => {
       el.querySelector('input').onchange = async e => {
         await Store.toggleTask(el.dataset.id, e.target.checked);
-        renderTasks();
+        await renderTasks();
+        await renderCalendar();
       };
       el.querySelector('.task-del').onclick = async () => {
-        await Store.delTask(el.dataset.id); renderTasks();
+        await Store.delTask(el.dataset.id);
+        await renderTasks();
+        await renderCalendar();
       };
     });
   }
@@ -333,7 +590,7 @@
     if (!items.length) { $('#noteList').innerHTML = '<div class="empty">还没有内容，点右上角「新建笔记」开始。</div>'; return; }
 
     const card = i => {
-      const excerpt = i.kind === 'mindmap' ? (() => { try { return outlineText(JSON.parse(i.content)).slice(0, 160); } catch (e) { return ''; } })() : String(i.content || '').slice(0, 160);
+      const excerpt = itemExcerpt(i, 160);
       return `<div class="note-card" data-id="${i.id}">
         <div class="note-title">${esc(i.title || '无标题')}</div>
         <div class="row wrap" style="gap:6px;margin-bottom:6px">
@@ -373,7 +630,7 @@
     }
     const me = Store.user();
     $('#forumList').innerHTML = items.length ? items.map(i => {
-      const excerpt = i.kind === 'mindmap' ? (() => { try { return outlineText(JSON.parse(i.content)).slice(0, 200); } catch (e) { return ''; } })() : String(i.content || '').slice(0, 200);
+      const excerpt = itemExcerpt(i, 200);
       const liked = (i.likes || []).includes(me.id);
       return `<div class="note-card" data-id="${i.id}">
         <div class="note-title">${esc(i.title || '无标题')}</div>
@@ -475,44 +732,213 @@
     $('#editor').classList.remove('hidden');
     drawEditor();
   }
+  let mmCtrl = null, pvCtrl = null, imgTarget = null, pvRevealed = false;
+
+  /* 把编辑器表单里的值同步回 editing。
+     任何"重新渲染编辑器"的动作之前都要先调它，否则刚打的标题会被清空。 */
+  function pullEditorForm() {
+    if (!editing) return;
+    if ($('#edTitle')) {
+      editing.title = $('#edTitle').value;
+      editing.module = $('#edModule').value;
+      editing.kind = $('#edKind').value;
+      editing.visibility = $('#edVis').value;
+    }
+    if (mmCtrl) editing.content = mmCtrl.serialize();
+    else if ($('#edContent')) editing.content = $('#edContent').value;
+  }
+
+  function editorHead(it) {
+    return `
+      <div class="field"><label>标题（也是瀑布流里显示的「主题」）</label>
+        <input class="input" id="edTitle" value="${esc(it.title)}" placeholder="例如：资料分析 · 增长率速算口诀"></div>
+      <div class="grid g3">
+        <div class="field"><label>模块</label><select class="input" id="edModule">${MODULES.map(m => `<option value="${m.id}" ${m.id === it.module ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></div>
+        <div class="field"><label>类型</label><select class="input" id="edKind">
+          <option value="note" ${it.kind === 'note' ? 'selected' : ''}>笔记（纯文字）</option>
+          <option value="mindmap" ${it.kind === 'mindmap' ? 'selected' : ''}>思维导图（图形）</option>
+        </select></div>
+        <div class="field"><label>可见性</label><select class="input" id="edVis">
+          <option value="private" ${it.visibility !== 'public' ? 'selected' : ''}>仅自己可见</option>
+          <option value="public" ${it.visibility === 'public' ? 'selected' : ''}>发布到瀑布流</option>
+        </select></div>
+      </div>`;
+  }
+
+  function mapToolsHtml() {
+    return `
+      <div class="mmc-tools">
+        <button class="btn soft sm" id="mmAddChild">＋ 子节点</button>
+        <button class="btn ghost sm" id="mmAddSib">＋ 同级</button>
+        <button class="btn ghost sm" id="mmAddFree">＋ 自由节点</button>
+        <button class="btn ghost sm" id="mmDel">删除节点</button>
+        <span class="spacer"></span>
+        <button class="btn ghost sm" id="mmImg">插入图片</button>
+        <button class="btn ghost sm" id="mmWide">长文本节点</button>
+        <button class="btn ghost sm" id="mmImport">大纲导入</button>
+      </div>
+      <div class="mmc-outline-box hidden" id="mmOutlineBox">
+        <textarea class="input" id="mmOutlineText" placeholder="把大纲粘进来：每行一条，行首缩进两个空格 ＝ 下一级"></textarea>
+        <div class="row wrap" style="margin-top:8px">
+          <button class="btn soft sm" id="mmOutlineOk">生成导图</button>
+          <button class="btn ghost sm" id="mmOutlineCancel">取消</button>
+          <span class="hint">会替换掉现在这张图（图里的图片会一起没，谨慎用）</span>
+        </div>
+      </div>
+      <div class="mmc-stage" id="mmStage"></div>
+      <div class="mmc-tools" style="margin-top:10px">
+        <button class="btn ghost sm" id="mmOut">缩小 −</button>
+        <span class="hint" id="mmZoom">100%</span>
+        <button class="btn ghost sm" id="mmIn">放大 ＋</button>
+        <button class="btn ghost sm" id="mmLayout">整理布局</button>
+        <button class="btn ghost sm" id="mmFit">适应屏幕</button>
+      </div>
+      <div class="mmc-insp">
+        <div class="field" style="margin-bottom:0">
+          <label>选中节点的文字（一整道例题也能塞进来，换行随便打）</label>
+          <textarea class="input" id="mmText" placeholder="先点画布上的某个节点，或者点「＋ 子节点」新建一个"></textarea>
+        </div>
+      </div>
+      <div class="mmc-hint">拖节点＝移动　拖空白＝平移　滚轮＝缩放　双击节点＝跳到下面的输入框</div>
+      <input type="file" id="mmImgFile" accept="image/*" class="hidden">`;
+  }
+
+  function mountMapEditor() {
+    const graph = MIND.parse(editing.content || '');
+    if (!graph.nodes.length) graph.nodes = MIND.blank().nodes;
+
+    const syncInsp = id => {
+      const ta = $('#mmText'); if (!ta) return;
+      const n = graph.nodes.find(x => x.id === id);
+      ta.value = n ? n.t : '';
+      ta.disabled = !n;
+    };
+    mmCtrl = MIND.mount($('#mmStage'), graph, {
+      onSelect: syncInsp,
+      onDblClick: () => { const ta = $('#mmText'); if (ta) ta.focus(); }
+    });
+    syncInsp(null);
+
+    const bump = () => { const z = $('#mmZoom'); if (z) z.textContent = mmCtrl.zoomLevel() + '%'; };
+
+    $('#mmAddChild').onclick = () => { mmCtrl.addChild(null); syncInsp(mmCtrl.selectedId()); };
+    $('#mmAddSib').onclick = () => { mmCtrl.addSibling(null); syncInsp(mmCtrl.selectedId()); };
+    $('#mmAddFree').onclick = () => { mmCtrl.addFree(); syncInsp(mmCtrl.selectedId()); };
+    $('#mmDel').onclick = () => {
+      if (!mmCtrl.selectedId()) return toast('先点一个节点，再删');
+      mmCtrl.delSel(); syncInsp(null);
+    };
+    $('#mmWide').onclick = () => {
+      const id = mmCtrl.selectedId();
+      if (!id) return toast('先点一个节点');
+      const n = mmCtrl.graph.nodes.find(x => x.id === id);
+      mmCtrl.setWide(id, !(n && n.wide));
+      toast(n && n.wide ? '已变回普通节点' : '已变成宽节点，适合放例题');
+      bump();
+    };
+    $('#mmImg').onclick = () => {
+      const id = mmCtrl.selectedId() || mmCtrl.addChild(null, '图片');
+      imgTarget = id;
+      $('#mmImgFile').click();
+    };
+    $('#mmImgFile').onchange = async e => {
+      const f = e.target.files[0];
+      e.target.value = '';
+      if (!f || !imgTarget) return;
+      try {
+        toast('正在压缩图片……');
+        const r = await MIND.compressImage(f, 800);
+        mmCtrl.setImage(imgTarget, r.dataUrl);
+        bump();
+        toast('图片已压到 ' + r.w + '×' + r.h + ' 插进导图');
+      } catch (err) { toast(err.message || '这张图处理不了'); }
+    };
+    $('#mmText').oninput = e => {
+      const id = mmCtrl.selectedId(); if (!id) return;
+      mmCtrl.retext(id, e.target.value);
+    };
+    $('#mmOut').onclick = () => { mmCtrl.zoomBy(1 / 1.15); bump(); };
+    $('#mmIn').onclick = () => { mmCtrl.zoomBy(1.15); bump(); };
+    $('#mmFit').onclick = () => { mmCtrl.fit(); bump(); };
+    $('#mmLayout').onclick = () => { mmCtrl.autoLayout(); bump(); toast('已重新排布'); };
+    $('#mmImport').onclick = () => $('#mmOutlineBox').classList.toggle('hidden');
+    $('#mmOutlineCancel').onclick = () => $('#mmOutlineBox').classList.add('hidden');
+    $('#mmOutlineOk').onclick = () => {
+      const txt = $('#mmOutlineText').value;
+      if (!txt.trim()) return toast('先粘点东西进来');
+      pullEditorForm();                    // ← 先保住标题等已填内容，否则重绘会清空
+      editing.content = MIND.serialize(MIND.fromIndentText(txt));
+      drawEditor();
+      toast('已按大纲生成导图，可以接着拖');
+    };
+
+    window.setTimeout(() => { mmCtrl.fit(); bump(); }, 40);
+  }
+
   function drawEditor() {
     const it = editing;
     const isNew = !it.id;
     const canEdit = !it.readOnly;
+    const isMap = it.kind === 'mindmap';
+    if (mmCtrl) { mmCtrl.destroy(); mmCtrl = null; }
+    if (pvCtrl) { pvCtrl.destroy(); pvCtrl = null; }
+    imgTarget = null;
+
     if (editTab === 'edit') {
-      $('#editorBody').innerHTML = `
-        <div class="field"><label>标题（也是瀑布流里显示的「主题」）</label>
-          <input class="input" id="edTitle" value="${esc(it.title)}" placeholder="例如：资料分析 · 增长率速算口诀"></div>
-        <div class="grid g3">
-          <div class="field"><label>模块</label><select class="input" id="edModule">${MODULES.map(m => `<option value="${m.id}" ${m.id === it.module ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></div>
-          <div class="field"><label>类型</label><select class="input" id="edKind">
-            <option value="note" ${it.kind === 'note' ? 'selected' : ''}>笔记</option>
-            <option value="mindmap" ${it.kind === 'mindmap' ? 'selected' : ''}>思维导图（大纲式）</option>
-          </select></div>
-          <div class="field"><label>可见性</label><select class="input" id="edVis">
-            <option value="private" ${it.visibility !== 'public' ? 'selected' : ''}>仅自己可见</option>
-            <option value="public" ${it.visibility === 'public' ? 'selected' : ''}>发布到瀑布流</option>
-          </select></div>
-        </div>
-        <div class="field"><label>${it.kind === 'mindmap' ? '大纲内容（每两个缩进 = 下一级）' : '正文'}</label>
-          <textarea class="input" id="edContent" style="min-height:320px" placeholder="${it.kind === 'mindmap' ? '资料分析\n  核心公式\n    基期量 = 现期量 ÷ (1 + 增长率)\n  速算技巧\n    截位直除' : '记下今天真正弄懂的那一点'}">${esc(it.kind === 'mindmap' && it.content && it.content.trim().startsWith('{') ? tryOutline(it.content) : it.content)}</textarea>
-          ${it.kind === 'mindmap' ? '<div class="hint" style="margin-top:6px">想手动指定挖空位置？把要挖的内容写成【【这样】】即可。</div>' : '<div class="hint" style="margin-top:6px">想手动指定挖空位置？把要挖的内容写成【【这样】】即可。</div>'}
-        </div>`;
+      if (isMap) {
+        $('#editorBody').innerHTML = editorHead(it) + mapToolsHtml();
+        mountMapEditor();
+      } else {
+        const plain = (MIND.isGraph(it.content) || MIND.isOutline(it.content))
+          ? MIND.toOutlineText(MIND.parse(it.content), true)
+          : (it.content || '');
+        $('#editorBody').innerHTML = editorHead(it) + `
+          <div class="field"><label>正文</label>
+            <textarea class="input" id="edContent" style="min-height:320px" placeholder="记下今天真正弄懂的那一点">${esc(plain)}</textarea>
+            <div class="hint" style="margin-top:6px">想手动指定挖空位置？把要挖的内容写成【【这样】】即可。</div>
+          </div>`;
+      }
     } else if (editTab === 'preview') {
-      const isMap = it.kind === 'mindmap';
-      const node = isMap ? (it.content.trim().startsWith('{') ? JSON.parse(it.content) : parseOutline(it.content)) : null;
-      $('#editorBody').innerHTML = `
-        <div class="note-title" style="font-size:18px;margin-bottom:6px">${esc(it.title || '无标题')}</div>
-        <div class="row wrap" style="gap:6px;margin-bottom:14px">
+      const tagRow = `<div class="row wrap" style="gap:6px;margin-bottom:12px">
           <span class="tag b">${esc(modName(it.module))}</span>
           <span class="tag ${isMap ? 'w' : ''}">${isMap ? '思维导图' : '笔记'}</span>
           ${it.visibility === 'public' ? '<span class="tag">已发布</span>' : ''}
-        </div>
-        ${isMap ? `<div class="mindmap">${renderTree(node, 0, true)}</div>`
-          : `<div style="white-space:pre-wrap;font-size:15px;line-height:1.9">${esc(it.content)}</div>`}`;
-      bindTreeToggles();
+        </div>`;
+      if (isMap) {
+        $('#editorBody').innerHTML = `
+          <div class="note-title" style="font-size:18px;margin-bottom:6px">${esc(it.title || '无标题')}</div>
+          ${tagRow}
+          <div class="row wrap" style="gap:8px;margin-bottom:10px">
+            <button class="btn ghost sm" id="pvReveal">默写模式：盖住文字</button>
+            <button class="btn ghost sm" id="pvFit">适应屏幕</button>
+            <span class="hint" id="pvStat"></span>
+          </div>
+          <div class="mmc-stage review-map" id="pvStage"></div>`;
+        pvRevealed = false;
+        pvCtrl = MIND.mount($('#pvStage'), MIND.parse(it.content), {
+          readonly: true,
+          onReveal: () => {
+            const s = pvCtrl.revealStats();
+            $('#pvStat').textContent = '已揭晓 ' + s.revealed + ' / ' + s.total + ' 个节点';
+          }
+        });
+        pvCtrl.fit();
+        window.setTimeout(() => { if (pvCtrl) pvCtrl.fit(); }, 60);
+        $('#pvReveal').onclick = () => {
+          pvRevealed = !pvRevealed;
+          pvCtrl.setRevealMode(pvRevealed);
+          $('#pvReveal').textContent = pvRevealed ? '退出默写模式' : '默写模式：盖住文字';
+          $('#pvStat').textContent = pvRevealed ? '点节点逐个揭晓：已揭晓 0 / ' + pvCtrl.revealStats().total : '';
+        };
+        $('#pvFit').onclick = () => pvCtrl.fit();
+      } else {
+        $('#editorBody').innerHTML = `
+          <div class="note-title" style="font-size:18px;margin-bottom:6px">${esc(it.title || '无标题')}</div>
+          ${tagRow}
+          <div style="white-space:pre-wrap;font-size:15px;line-height:1.9">${esc(it.content)}</div>`;
+      }
     } else {
-      const plain = it.kind === 'mindmap' && it.content.trim().startsWith('{') ? outlineText(JSON.parse(it.content)) : (it.content || '');
+      const plain = isMap ? MIND.toOutlineText(MIND.parse(it.content), true) : (it.content || '');
       $('#editorBody').innerHTML = `
         <div class="row wrap" style="margin-bottom:14px">
           <span class="hint">挖空方式</span>
@@ -526,6 +952,7 @@
           <span class="spacer"></span>
           <button class="btn soft sm" id="btnReCheck">对答案</button>
         </div>
+        ${isMap ? '<div class="hint" style="margin-bottom:10px">导图的默写按节点层级展开成文字，所以能挖公式、也能挖关键句。</div>' : ''}
         <div class="blanks" id="reciteBox"></div>
         <div id="reciteResult" style="margin-top:16px"></div>`;
       const rebuild = () => {
@@ -547,10 +974,13 @@
     /* 底部按钮 */
     if (editTab === 'edit') {
       $('#editorFoot').innerHTML = `${canEdit || isNew ? `<button class="btn" id="btnSave">保存</button>` : ''}
-        ${!isNew ? `<button class="btn ghost" id="btnCopy">${it.kind === 'mindmap' ? '跳到默写' : '跳到默写'}</button>` : ''}
+        ${!isNew ? `<button class="btn ghost" id="btnCopy">跳到默写</button>` : ''}
         ${!isNew ? `<button class="btn danger" id="btnDel">删除</button>` : ''}`;
       const sv = $('#btnSave'); if (sv) sv.onclick = saveEditor;
-      const cp = $('#btnCopy'); if (cp) cp.onclick = () => { editTab = 'recite'; $$('#editTabs button').forEach(b => b.classList.toggle('active', b.dataset.etab === 'recite')); drawEditor(); };
+      const cp = $('#btnCopy'); if (cp) cp.onclick = () => {
+        if (mmCtrl) editing.content = mmCtrl.serialize();
+        editTab = 'recite'; $$('#editTabs button').forEach(b => b.classList.toggle('active', b.dataset.etab === 'recite')); drawEditor();
+      };
       const dl = $('#btnDel'); if (dl) dl.onclick = async () => {
         if (!confirm('确定删除这条内容？删了就找不回来了。')) return;
         await Store.delItem(it.id); closeEditor(); renderNotes();
@@ -563,24 +993,42 @@
       $('#btnToEdit2').onclick = () => { editTab = 'edit'; $$('#editTabs button').forEach(b => b.classList.toggle('active', b.dataset.etab === 'edit')); drawEditor(); };
     }
   }
-  function tryOutline(json) { try { return outlineText(JSON.parse(json)); } catch (e) { return json; } }
 
   async function saveEditor() {
-    const title = $('#edTitle').value.trim();
-    const content = $('#edContent').value;
-    const kind = $('#edKind').value;
+    const title = ($('#edTitle') ? $('#edTitle').value : (editing.title || '')).trim();
+    const kind = $('#edKind') ? $('#edKind').value : editing.kind;
     if (!title) return toast('先给个标题');
     const u = Store.user();
-    let data = content;
-    if (kind === 'mindmap' && !content.trim().startsWith('{')) data = JSON.stringify(parseOutline(content));
+    const rawText = $('#edContent') ? $('#edContent').value : '';
+    let data;
+    if (kind === 'mindmap') {
+      data = mmCtrl
+        ? mmCtrl.serialize()
+        : MIND.serialize(MIND.parse(rawText || editing.content || ''));
+    } else {
+      data = mmCtrl
+        ? MIND.toOutlineText(MIND.parse(mmCtrl.serialize()), true)
+        : (rawText || editing.content || '');
+    }
     const payload = {
-      id: editing.id, userId: editing.userId || u.id, authorName: editing.authorName && editing.authorName !== '系统预置' ? editing.authorName : (u.nickname || u.username),
-      module: $('#edModule').value, kind, title, content: data, visibility: $('#edVis').value
+      id: editing.id,
+      userId: editing.userId || u.id,
+      authorName: editing.authorName && editing.authorName !== '系统预置' ? editing.authorName : (u.nickname || u.username),
+      module: $('#edModule') ? $('#edModule').value : editing.module,
+      kind, title, content: data,
+      visibility: $('#edVis') ? $('#edVis').value : editing.visibility
     };
-    await Store.saveItem(payload);
+    try {
+      await Store.saveItem(payload);
+    } catch (err) {
+      toast(err.message || '保存失败：可能是浏览器本地存储满了，先导出备份再删几条带大图的笔记');
+      return;
+    }
     toast('已保存');
     closeEditor();
-    if (view === 'notes') renderNotes(); if (view === 'forum') renderForum(); if (view === 'home') renderModuleTiles();
+    if (view === 'notes') renderNotes();
+    if (view === 'forum') renderForum();
+    if (view === 'home') { renderModuleTiles(); renderCalendar(); }
   }
   function checkRecite() {
     const inputs = $$('#reciteBox .blank');
@@ -613,34 +1061,64 @@
       }
     }
   }
-  function closeEditor() { $('#editor').classList.add('hidden'); editing = null; }
+  function closeEditor() {
+    if (mmCtrl) { mmCtrl.destroy(); mmCtrl = null; }
+    if (pvCtrl) { pvCtrl.destroy(); pvCtrl = null; }
+    $('#editor').classList.add('hidden');
+    editing = null;
+  }
+  function closeReview() {
+    reviewCtrls.forEach(c => { try { c.destroy(); } catch (e) { } });
+    reviewCtrls = [];
+    $('#reviewModal').classList.add('hidden');
+  }
 
   /* ================= 知识点复习弹层 ================= */
+  let reviewCtrls = [];
   async function openReview(moduleId) {
+    reviewCtrls.forEach(c => { try { c.destroy(); } catch (e) { } });
+    reviewCtrls = [];
     const items = await Store.listItems({ kind: 'mindmap', module: moduleId });
     $('#reviewTabs').innerHTML = MODULES.map(m => `<button data-rm="${m.id}" class="${m.id === moduleId ? 'active' : ''}">${esc(m.short)}</button>`).join('');
     const box = $('#reviewBody');
     if (!items.length) {
-      box.innerHTML = '<div class="empty">这个模块还没有导图。<button class="btn soft sm" id="btnSeedThis" style="margin-left:8px">载入预置内容</button></div>';
-      $('#btnSeedThis').onclick = async () => {
+      const hasSeed = !!SEED.MINDMAPS[moduleId];
+      box.innerHTML = '<div class="empty">这个模块还没有导图。'
+        + (hasSeed ? '<button class="btn soft sm" id="btnSeedThis" style="margin-left:8px">载入预置内容</button>' : '点「打开编辑」前先去「我的笔记 → 新建导图」画一张。')
+        + '</div>';
+      if ($('#btnSeedThis')) $('#btnSeedThis').onclick = async () => {
         const seed = SEED.MINDMAPS[moduleId];
         const u = Store.user();
         await Store.saveItem({ userId: u.id, authorName: '系统预置', module: moduleId, kind: 'mindmap', title: seed.title, content: JSON.stringify(seed.root), visibility: 'private' });
         openReview(moduleId); renderModuleTiles();
       };
     } else {
-      box.innerHTML = items.map(i => {
-        let node; try { node = i.content.trim().startsWith('{') ? JSON.parse(i.content) : parseOutline(i.content); } catch (e) { node = parseOutline(i.content); }
-        return `<div style="margin-bottom:26px">
-          <div class="card-head"><div class="card-title">${esc(i.title)}</div>
-          <button class="btn ghost sm" data-open="${i.id}">打开编辑</button></div>
-          <div class="mindmap">${renderTree(node, 0, true)}</div></div>`;
-      }).join('');
-      bindTreeToggles();
+      box.innerHTML = items.map(i => `
+        <div style="margin-bottom:26px">
+          <div class="card-head">
+            <div class="card-title">${esc(i.title)}</div>
+            <button class="btn ghost sm" data-open="${i.id}">打开编辑</button>
+          </div>
+          <div class="mmc-stage review-map" data-graph="${i.id}"></div>
+        </div>`).join('');
+
+      $$('#reviewBody [data-graph]').forEach(st => {
+        const it = items.find(x => x.id === st.dataset.graph);
+        if (!it) return;
+        try {
+          const c = MIND.mount(st, MIND.parse(it.content), { readonly: true });
+          reviewCtrls.push(c);
+          c.fit();
+          window.setTimeout(() => c.fit(), 80);
+        } catch (e) {
+          st.innerHTML = '<div class="mmc-empty">这张导图读不出来。</div>';
+        }
+      });
+
       $$('#reviewBody [data-open]').forEach(b => b.onclick = async () => {
         const list = await Store.listItems();
         const it = list.find(x => x.id === b.dataset.open);
-        $('#reviewModal').classList.add('hidden');
+        closeReview();
         if (it) openEditor(it);
       });
     }
@@ -660,7 +1138,8 @@
       if (!title) return toast('先写点什么');
       await Store.addTask({ date: today(), module: $('#taskModule').value, title });
       $('#taskTitle').value = '';
-      renderTasks();
+      await renderTasks();
+      await renderCalendar();
     };
     $('#taskTitle').addEventListener('keydown', e => { if (e.key === 'Enter') $('#btnAddTask').click(); });
     $('#btnTaskLib').onclick = () => {
@@ -671,11 +1150,66 @@
       $$('#taskLibList [data-lib]').forEach(b => b.onclick = async () => {
         const t = SEED.TASK_LIBRARY[Number(b.dataset.lib)];
         await Store.addTask({ date: today(), module: t.module, title: t.title });
-        toast('已加入今日任务'); renderTasks();
+        toast('已加入今日任务');
+        await renderTasks();
+        await renderCalendar();
       });
     };
-    $('#btnAddReward').onclick = () => $('#rewardForm').classList.toggle('hidden');
-    $('#btnSaveReward').onclick = async () => {
+    /* ---- 日历 ---- */
+    $('#calPrev').onclick = () => {
+      calM--; if (calM < 0) { calM = 11; calY--; }
+      renderCalendar();
+    };
+    $('#calNext').onclick = () => {
+      calM++; if (calM > 11) { calM = 0; calY++; }
+      renderCalendar();
+    };
+    $('#calToday').onclick = () => {
+      const now = new Date();
+      calY = now.getFullYear(); calM = now.getMonth(); calSel = today();
+      renderCalendar();
+    };
+
+    /* ---- 番茄钟 ---- */
+    $('#pomoStart').onclick = pomoStart;
+    $('#pomoReset').onclick = () => {
+      pomoStop();
+      pomo.phase = 'focus';
+      pomo.focusMin = Math.min(180, Math.max(1, Number($('#pomoFocusMin').value) || 25));
+      pomoLoad(pomo.focusMin);
+      pomoPaint();
+    };
+    $('#pomoSkip').onclick = () => {
+      pomoStop();
+      pomo.phase = pomo.phase === 'focus' ? 'break' : 'focus';
+      pomoLoad(pomo.phase === 'focus'
+        ? Math.min(180, Math.max(1, Number($('#pomoFocusMin').value) || 25))
+        : Math.min(60, Math.max(1, Number($('#pomoBreakMin').value) || 5)));
+      pomoPaint();
+    };
+    $$('#pomoPresets button').forEach(b => b.onclick = () => {
+      pomoStop();
+      $('#pomoFocusMin').value = b.dataset.focus;
+      $('#pomoBreakMin').value = b.dataset.break;
+      pomo.focusMin = Number(b.dataset.focus);
+      pomo.breakMin = Number(b.dataset.break);
+      pomo.phase = 'focus';
+      pomoLoad(pomo.focusMin);
+      pomoPaint();
+      toast('已设为专注 ' + b.dataset.focus + ' 分钟 / 休息 ' + b.dataset.break + ' 分钟');
+    });
+    $('#pomoFocusMin').onchange = () => {
+      if (pomo.running || pomo.phase !== 'focus') return;
+      pomoStop();
+      pomo.focusMin = Math.min(180, Math.max(1, Number($('#pomoFocusMin').value) || 25));
+      pomoLoad(pomo.focusMin);
+      pomoPaint();
+    };
+    $('#pomoBreakMin').onchange = () => {
+      pomo.breakMin = Math.min(60, Math.max(1, Number($('#pomoBreakMin').value) || 5));
+    };
+
+    $('#btnAddReward').onclick = () => $('#rewardForm').classList.toggle('hidden');    $('#btnSaveReward').onclick = async () => {
       const t = $('#rewardTitle').value.trim(), c = Number($('#rewardCost').value) || 100;
       if (!t) return toast('奖励叫什么？');
       await Store.addReward(t, c);
@@ -726,15 +1260,9 @@
       r.readAsText(f);
     };
     $('#btnEditClose').onclick = closeEditor;
-    $('#btnReviewClose').onclick = () => $('#reviewModal').classList.add('hidden');
+    $('#btnReviewClose').onclick = closeReview;
     $$('#editTabs button').forEach(b => b.onclick = () => {
-      if (b.dataset.etab !== 'edit' && editTab === 'edit' && editing && $('#edTitle')) {
-        editing.title = $('#edTitle').value;
-        editing.module = $('#edModule').value;
-        editing.kind = $('#edKind').value;
-        editing.visibility = $('#edVis').value;
-        editing.content = $('#edContent').value;
-      }
+      if (b.dataset.etab !== 'edit' && editTab === 'edit') pullEditorForm();
       editTab = b.dataset.etab;
       $$('#editTabs button').forEach(x => x.classList.toggle('active', x === b));
       drawEditor();
