@@ -1,10 +1,11 @@
 /* 船员学习室 · Service Worker
    让手机「添加到主屏幕」后像 App 一样打开，断网也能看到界面 */
-const CACHE = 'cy-v2';
+const CACHE = 'cy-v4';
 const SHELL = [
   './', './index.html', './manifest.webmanifest',
-  './assets/style.css', './assets/config.js', './assets/seed.js',
-  './assets/store.js', './assets/app.js', './assets/icon.svg'
+  './assets/style.css', './assets/config.js', './assets/seed.js', './assets/cards.js',
+  './assets/store.js', './assets/mindmap.js', './assets/flashcards.js',
+  './assets/app.js', './assets/icon.svg'
 ];
 
 self.addEventListener('install', e => {

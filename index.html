@@ -71,14 +71,16 @@
 
 <!-- ============ 主界面 ============ -->
 <div id="app" class="shell hidden">
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
     <div class="side-brand">
       <div class="brand-mark">船员学习室</div>
       <div class="brand-sign">好好学习，天天向上</div>
     </div>
+    <button class="side-collapse" id="btnSideCollapse" title="收起侧栏">« 收起侧栏</button>
     <nav class="nav" id="navSide">
-      <button class="nav-item active" data-nav="home"><span class="nav-ico">◆</span>首页</button>
+      <button class="nav-item active" data-nav="home"><span class="nav-ico">◆</span>仪表盘</button>
       <button class="nav-item" data-nav="notes"><span class="nav-ico">✎</span>我的笔记</button>
+      <button class="nav-item" data-nav="cards"><span class="nav-ico">▦</span>卡片记忆</button>
       <button class="nav-item" data-nav="forum"><span class="nav-ico">≋</span>瀑布流</button>
       <button class="nav-item" data-nav="tools"><span class="nav-ico">⌗</span>行测助手</button>
       <button class="nav-item" data-nav="settings"><span class="nav-ico">⚙</span>设置</button>
@@ -96,18 +98,23 @@
 
   <main class="main">
     <header class="topbar">
-      <div>
-        <div class="page-title" id="pageTitle">今日学习</div>
-        <div class="page-desc" id="pageDesc"></div>
-      </div>
-      <div class="top-right">
-        <span class="pill warm" id="topPoints">积分 0</span>
-        <span class="pill" id="topStreak">连签 0 天</span>
-        <button class="btn ghost sm" id="btnLogout">退出</button>
+      <div class="topbar-inner">
+        <div class="tb-left">
+          <button class="icon-btn" id="btnMenu" title="展开 / 收起侧栏">☰</button>
+          <div>
+            <div class="page-title" id="pageTitle">仪表盘</div>
+            <div class="page-desc" id="pageDesc"></div>
+          </div>
+        </div>
+        <div class="top-right">
+          <span class="pill warm" id="topPoints">积分 0</span>
+          <span class="pill" id="topStreak">连签 0 天</span>
+          <button class="btn ghost sm" id="btnLogout">退出</button>
+        </div>
       </div>
     </header>
 
-    <!-- ---------- 首页 ---------- -->
+    <!-- ---------- 仪表盘 ---------- -->
     <section id="viewHome" class="view">
       <div class="grid g3" id="countdowns"></div>
 
@@ -145,6 +152,78 @@
           <button class="btn" id="btnAddTask">加入</button>
         </div>
         <div id="taskList"></div>
+      </div>
+
+      <!-- 学习日历 -->
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">学习日历</div>
+            <div class="card-sub">绿色＝那天打了卡　红色＝漏了打卡　点某一天看当天的任务</div>
+          </div>
+          <div class="row">
+            <button class="btn ghost sm" id="calPrev">‹</button>
+            <button class="btn ghost sm" id="calToday">回到今天</button>
+            <button class="btn ghost sm" id="calNext">›</button>
+          </div>
+        </div>
+        <div class="cal-month" id="calMonth">—</div>
+        <div class="cal-head" id="calHead"></div>
+        <div class="cal-grid" id="calGrid"></div>
+        <div class="cal-legend">
+          <span><i class="lg ok"></i>已打卡</span>
+          <span><i class="lg miss"></i>未打卡</span>
+          <span><i class="lg today"></i>今天</span>
+          <span><i class="lg dot"></i>有学习任务（实心＝全部完成）</span>
+        </div>
+        <div class="cal-day" id="calDay"></div>
+      </div>
+
+      <!-- 番茄钟 -->
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">番茄钟</div>
+            <div class="card-sub">专注一段，休息一段。时间自己定，别学太狠。</div>
+          </div>
+          <div class="row wrap" id="pomoPresets">
+            <button class="btn ghost sm" data-focus="15" data-break="3">15 分钟</button>
+            <button class="btn ghost sm" data-focus="25" data-break="5">25 分钟</button>
+            <button class="btn ghost sm" data-focus="45" data-break="10">45 分钟</button>
+          </div>
+        </div>
+        <div class="pomo-wrap" id="pomoWrap">
+          <div class="pomo-ring">
+            <svg viewBox="0 0 200 200" width="200" height="200" aria-hidden="true">
+              <circle class="pr-bg" cx="100" cy="100" r="88"></circle>
+              <circle class="pr-fg" id="pomoRing" cx="100" cy="100" r="88"></circle>
+            </svg>
+            <div class="pomo-center">
+              <div class="pomo-time" id="pomoTime">25:00</div>
+              <div class="pomo-phase" id="pomoPhase">专注</div>
+            </div>
+          </div>
+          <div class="pomo-side">
+            <div class="row wrap" style="gap:10px">
+              <button class="btn" id="pomoStart">开始专注</button>
+              <button class="btn ghost" id="pomoReset">重置</button>
+              <button class="btn ghost" id="pomoSkip">跳过这一段</button>
+            </div>
+            <div class="field" style="margin-top:16px">
+              <label>这一轮专注做什么（可留空）</label>
+              <input class="input" id="pomoTask" placeholder="例如：资料分析第 3 讲">
+            </div>
+            <div class="row wrap" style="gap:18px;margin-top:6px;align-items:flex-end">
+              <div><div class="hint">专注时长（分钟）</div>
+                <input class="input" id="pomoFocusMin" type="number" min="1" max="180" value="25" style="width:112px"></div>
+              <div><div class="hint">休息时长（分钟）</div>
+                <input class="input" id="pomoBreakMin" type="number" min="1" max="60" value="5" style="width:112px"></div>
+              <div><div class="hint">今天已完成</div>
+                <div class="pomo-count"><span id="pomoCount">0</span> 个番茄</div></div>
+            </div>
+            <div class="hint" id="pomoHint" style="margin-top:12px">开始后可以切到别的页面，计时不会停。专注走完一轮 +2 积分。</div>
+          </div>
+        </div>
       </div>
 
       <div class="card">
@@ -203,6 +282,11 @@
         </div>
       </div>
       <div id="noteList"></div>
+    </section>
+
+    <!-- ---------- 卡片记忆 ---------- -->
+    <section id="viewCards" class="view hidden">
+      <div id="cardsRoot"></div>
     </section>
 
     <!-- ---------- 瀑布流 ---------- -->
@@ -308,10 +392,13 @@
   </main>
 </div>
 
+<div class="scrim" id="scrim"></div>
+
 <!-- ============ 底部导航（手机） ============ -->
 <nav class="bottomnav hidden" id="bottomNav">
-  <button class="active" data-nav="home"><span class="bn-ico">◆</span>首页</button>
+  <button class="active" data-nav="home"><span class="bn-ico">◆</span>仪表盘</button>
   <button data-nav="notes"><span class="bn-ico">✎</span>笔记</button>
+  <button data-nav="cards"><span class="bn-ico">▦</span>卡片</button>
   <button data-nav="forum"><span class="bn-ico">≋</span>瀑布流</button>
   <button data-nav="tools"><span class="bn-ico">⌗</span>助手</button>
   <button data-nav="settings"><span class="bn-ico">⚙</span>设置</button>
@@ -350,7 +437,10 @@
 
 <script src="assets/config.js"></script>
 <script src="assets/seed.js"></script>
+<script src="assets/cards.js"></script>
 <script src="assets/store.js"></script>
+<script src="assets/mindmap.js"></script>
+<script src="assets/flashcards.js"></script>
 <script src="assets/app.js"></script>
 </body>
 </html>
